@@ -1,0 +1,7 @@
+1. Grabbing numeric text e.g. '123 Hello' --> 123
+
+try Int64.From([#"SafetyCulture_InspectionsHeader_Final[name].2 - Copy"]) 
+otherwise null
+
+2. For the tex e.g. '123 Hello' --> Hello
+Text.Remove([#"SafetyCulture_InspectionsHeader_Final[name].2"], {"0".."9"})
