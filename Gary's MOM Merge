@@ -1,0 +1,101 @@
+let
+    // 1. Get all Excel files in the folder
+    Source = Folder.Files("C:\Users\Grant.Howe\OneDrive - Ground Control\Documents\Office Attendance Reporting TEST"),
+    ExcelFiles = Table.SelectRows(Source, each [Extension] = ".xlsx"),
+
+    // 2. Load each workbook
+    AddWorkbook = Table.AddColumn(
+        ExcelFiles,
+        "Workbook",
+        each Excel.Workbook([Content], false)
+    ),
+
+    // 3. Extract the "Summary" sheet from each workbook
+    AddSummarySheet = Table.AddColumn(
+        AddWorkbook,
+        "SummaryData",
+        each 
+            let
+                sheet = Table.SelectRows([Workbook], each [Item] = "Summary" and [Kind] = "Sheet"){0}[Data],
+
+                // Ensure all columns are type 'any' to handle errors
+                allAnyType = Table.TransformColumnTypes(sheet, List.Transform(Table.ColumnNames(sheet), each {_, type any})),
+
+                // Promote headers and trim column names
+                promoted = Table.PromoteHeaders(allAnyType, [PromoteAllScalars=true]),
+                cleanHeaders = Table.TransformColumnNames(promoted, each Text.Trim(_)),
+
+                // Standardize Display Name column
+                displayColumn = List.First(List.Select(Table.ColumnNames(cleanHeaders), each Text.Lower(_) = "display name"), null),
+                standardized = if displayColumn <> null then Table.RenameColumns(cleanHeaders, {{displayColumn, "Display Name"}}) else cleanHeaders,
+
+                // Prefix other columns (except Display Name) with file name to make them unique
+                prefixedColumns = Table.TransformColumnNames(
+                    standardized,
+                    (c) => if c <> "Display Name" then Text.BeforeDelimiter([Name], ".") & "_" & c else c
+                )
+            in
+                prefixedColumns
+    ),
+
+    // 4. Extract all the tables
+    AllTables = AddSummarySheet[SummaryData],
+
+    // 5. Merge all tables on "Display Name"
+    MergedTables = List.Accumulate(
+        List.Skip(AllTables),
+        List.First(AllTables),
+        (state, current) =>
+            let
+                joined = Table.NestedJoin(
+                    state,
+                    {"Display Name"},
+                    current,
+                    {"Display Name"},
+                    "Merged",
+                    JoinKind.FullOuter
+                ),
+                expanded = Table.ExpandTableColumn(
+                    joined,
+                    "Merged",
+                    List.RemoveItems(Table.ColumnNames(current), {"Display Name"})
+                )
+            in
+                expanded
+    ),
+
+    // 6. Keep only the columns we care about
+    KeepColumns = Table.SelectColumns(
+        MergedTables,
+        List.Select(
+            Table.ColumnNames(MergedTables),
+            each _ = "Display Name" 
+                 or _ = "Gary_Automation_BASELINE_december_Employee ID"
+                 or _ = "Gary_Automation_BASELINE_december_Reports to"
+                 or Text.EndsWith(_, "%")
+        )
+    ),
+
+    // 7. Rename % columns to keep only the last part after "_"
+    RenamedColumns = Table.TransformColumnNames(
+        KeepColumns,
+        (c) => if c <> "Display Name" 
+               and c <> "Gary_Automation_BASELINE_december_Employee ID" 
+               and c <> "Gary_Automation_BASELINE_december_Reports to"
+               then Text.AfterDelimiter(c, "_", {0, RelativePosition.FromEnd}) 
+               else c
+    ),
+
+    // 8. Change type for Employee ID if needed
+    #"Changed Type" = Table.TransformColumnTypes(
+        RenamedColumns,
+        {{"Gary_Automation_BASELINE_december_Employee ID", type text}}
+    ),
+
+    // 9. Remove duplicate Display Name rows
+    #"Removed Duplicates" = Table.Distinct(#"Changed Type", {"Display Name"}),
+    #"Renamed Columns" = Table.RenameColumns(#"Removed Duplicates",{{"Gary_Automation_BASELINE_december_Reports to", "Reports To"}}),
+    #"Changed Type1" = Table.TransformColumnTypes(#"Renamed Columns",{{"DEC %", Percentage.Type}, {"JAN %", Percentage.Type}}),
+    #"Renamed Columns1" = Table.RenameColumns(#"Changed Type1",{{"Gary_Automation_BASELINE_december_Employee ID", "Employee ID"}})
+in
+    #"Renamed Columns1"
