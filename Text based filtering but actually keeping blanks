@@ -1,0 +1,6 @@
+#"Filtered Rows2" =
+    Table.SelectRows(
+        #"Added Suffix",
+        each [Job Type] = null 
+            or not Text.Contains(Text.Lower([Job Type]), "pothole")
+    )
