@@ -1,0 +1,10 @@
+
+ReplacedZerosWithNull = Table.ReplaceValue(
+        Source,
+        0,
+        null,
+        Replacer.ReplaceValue,
+        {"StartLatitude", "StartLongitude", "FinishLatitude", "FinishLongitude"}
+    )
+
+in
